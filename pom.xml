@@ -27,6 +27,12 @@
     </dependency>
   </dependencies>
 
+  <dependency>
+  <groupId>com.sun.net.httpserver</groupId>
+  <artifactId>http</artifactId>
+  <version>20070405</version>
+  </dependency>
+
   <build>
     <pluginManagement><!-- lock down plugins versions to avoid using Maven defaults (may be moved to parent pom) -->
       <plugins>
