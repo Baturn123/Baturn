@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let pollingInterval = null;
     const BAD_WORDS_CLIENT = ["darn", "heck", "badword", "crap", "poop"];
 
-    const BASE_URL = 'http://localhost:8000';
+    const BASE_URL = 'https://furious-ardella-ryanjoneal100-4d101745.koyeb.app/';
     const MESSAGES_URL_TEMPLATE = (roomId) => `${BASE_URL}/getMessages?room=${roomId}`;
     const POST_MESSAGE_URL = `${BASE_URL}/postMessage`;
 
