@@ -1,1 +1,1 @@
-web: java -jar example-java.jar
+web: ./start.sh
