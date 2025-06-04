@@ -1,1 +1,1 @@
-CMD ls -la /workspace && java -jar target/example-java.jar
+web: java -jar example-java.jar
