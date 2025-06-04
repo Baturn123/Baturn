@@ -1,0 +1,12 @@
+name: java-web-app
+services:
+  - name: web
+    git:
+      branch: main
+      repo: https://github.com/your-username/your-repo
+    build:
+      dockerfile: Dockerfile
+    run:
+      cmd: java -jar target/your-app.jar
+      ports:
+        - 8000
