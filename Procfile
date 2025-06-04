@@ -1,2 +1,1 @@
-#!/bin/sh
-web: ./list-target.sh
+web: ./list-target.sh && java -jar target/example-java-1.0-SNAPSHOT-shaded.jar
