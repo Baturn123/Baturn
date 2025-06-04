@@ -79,10 +79,10 @@ public class SimpleChatServer {
         public void handle(HttpExchange exchange) throws IOException {
             String requestedPath = exchange.getRequestURI().getPath();
             String filePathString;
-            if (requestedPath.equals("/") || requestedPath.isEmpty()) filePathString = "../../../../resources/static/index.html";
+            if (requestedPath.equals("/") || requestedPath.isEmpty()) filePathString = "src/main/resources/static/index.html";
             else {
                 if (requestedPath.contains("..")) { sendTextResponse(exchange, 400, "400 (Bad Request) Invalid path."); return; }
-                filePathString = "../../../../resources/static" + (requestedPath.startsWith("/") ? requestedPath : "/" + requestedPath);
+                filePathString = "src/main/resources/static" + (requestedPath.startsWith("/") ? requestedPath : "/" + requestedPath);
             }
             Path filePath = Paths.get(filePathString);
             if (Files.exists(filePath) && !Files.isDirectory(filePath)) {
