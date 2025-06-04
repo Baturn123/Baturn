@@ -45,9 +45,9 @@
                             <shadedArtifactAttached>false</shadedArtifactAttached>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>app.koyeb.example.App</mainClass>
+                                    <mainClass>SimpleChatServer</mainClass>
                                     <manifestEntries>
-                                        <Main-Class>app.koyeb.example.App</Main-Class>
+                                        <Main-Class>SimpleChatServer</Main-Class>
                                     </manifestEntries>
                                 </transformer>
                             </transformers>
@@ -79,7 +79,7 @@
             <archive>
               <manifest>
                 <addClasspath>true</addClasspath>
-                <mainClass>app.koyeb.example.App</mainClass>
+                <mainClass>SimpleChatServer</mainClass>
               </manifest>
             </archive>
           </configuration>
