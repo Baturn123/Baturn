@@ -1,1 +1,1 @@
-web: java -jar target/example-java-shaded.jar
+web: java -jar target/example-java.jar
