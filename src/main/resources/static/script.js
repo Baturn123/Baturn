@@ -182,11 +182,11 @@ document.addEventListener('DOMContentLoaded', () => {
         textWrapper.appendChild(textSpan);
         messageElement.appendChild(textWrapper);
         
-        const isScrolledToBottom = messagesDiv.scrollHeight - messagesDiv.clientHeight <= messagesDiv.scrollTop + 1;
+        /*const isScrolledToBottom = messagesDiv.scrollHeight - messagesDiv.clientHeight <= messagesDiv.scrollTop + 1;
         messagesDiv.appendChild(messageElement);
         if (isScrolledToBottom || isCurrentUser) {
             messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
-        }
+        }*/
     }
 
     function displaySystemMessage(text, type = 'info', clearPrevious = false) {
