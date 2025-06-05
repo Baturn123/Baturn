@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateCurrentRoomDisplay() {
         const activeRoomLi = roomListUl.querySelector('.active-room');
-        const roomName = activeRoomLi ? activeRoomLi.dataset.roomid : 'data-roomid'; // Use data-roomid for consistency
+        const roomName = activeRoomLi ? activeRoomLi.dataset.roomid : 'general'; // Use data-roomid for consistency
         currentRoomNameSpan.textContent = roomName;
         chatRoomIconSpan.textContent = '#';
     }
