@@ -45,7 +45,7 @@ public class SimpleChatServer {
   }
 
   private static final List<String> FORBIDDEN_WORDS =
-      Arrays.asList("darn", "heck", "badword", "crap", "poop", "stupid");
+      Arrays.asList("darn", "heck", "badword", "crap", "poop", "stupid", "job", "employment", "job application");
   private static final String MODERATION_REPLACEMENT = "[censored]";
 
   public static void main(String[] args) throws IOException {
