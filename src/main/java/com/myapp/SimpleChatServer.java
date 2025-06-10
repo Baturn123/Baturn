@@ -196,20 +196,20 @@ public class SimpleChatServer {
         }
     }
   }
-
+  
   static class StaticFileHandler implements HttpHandler {
     @Override
     public void handle(HttpExchange exchange) throws IOException {
       String requestedPath = exchange.getRequestURI().getPath();
       String filePathString;
       if (requestedPath.equals("/") || requestedPath.isEmpty()) {
-        filePathString = "../../../../resources/static/index.html";
+        filePathString = "src/main/resources/static/index.html";
       } else {
         if (requestedPath.contains("..")) {
           sendTextResponse(exchange, 400, "400 (Bad Request) Invalid path.");
           return;
         }
-        filePathString = "../../../../resources/static"
+        filePathString = "src/main/resources/static"
             + (requestedPath.startsWith("/") ? requestedPath
                                              : "/" + requestedPath);
       }
