@@ -209,7 +209,7 @@ public class SimpleChatServer {
           sendTextResponse(exchange, 400, "400 (Bad Request) Invalid path.");
           return;
         }
-        filePathString = "../../../../resources/static/index.html"
+        filePathString = "../../../../resources/static"
             + (requestedPath.startsWith("/") ? requestedPath
                                              : "/" + requestedPath);
       }
