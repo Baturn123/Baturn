@@ -203,13 +203,13 @@ public class SimpleChatServer {
       String requestedPath = exchange.getRequestURI().getPath();
       String filePathString;
       if (requestedPath.equals("/") || requestedPath.isEmpty()) {
-        filePathString = "static/index.html";
+        filePathString = "../../../../resources/static/index.html";
       } else {
         if (requestedPath.contains("..")) {
           sendTextResponse(exchange, 400, "400 (Bad Request) Invalid path.");
           return;
         }
-        filePathString = "static"
+        filePathString = "../../../../resources/static/index.html"
             + (requestedPath.startsWith("/") ? requestedPath
                                              : "/" + requestedPath);
       }
