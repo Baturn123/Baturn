@@ -1,11 +1,17 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
-    const loginSection = document.getElementById('login-section');
+    const authSection = document.getElementById('auth-section');
     const chatSection = document.getElementById('chat-section');
     const usernameInput = document.getElementById('usernameInput');
-    const joinChatButton = document.getElementById('joinChatButton');
-    const loginStatusP = document.getElementById('login-status');
-    const leaveChatButton = document.getElementById('leaveChatButton');
+    const passwordInput = document.getElementById('passwordInput');
+    const loginButton = document.getElementById('loginButton');
+    const registerButton = document.getElementById('registerButton');
+    const toggleAuthModeLink = document.getElementById('toggleAuthModeLink');
+    const authStatusP = document.getElementById('auth-status');
+    const authTitle = document.getElementById('auth-title');
+    const authSubtitle = document.getElementById('auth-subtitle');
+
+    const logoutButton = document.getElementById('logoutButton');
     const currentUserDisplaySpan = document.getElementById('currentUserDisplay');
     const userAvatarSpan = document.getElementById('user-avatar');
 
@@ -13,260 +19,558 @@ document.addEventListener('DOMContentLoaded', () => {
     const messageForm = document.getElementById('messageForm');
     const messageInput = document.getElementById('messageInput');
     const sendMessageBtn = document.getElementById('sendMessageBtn');
+
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
     const roomListUl = document.getElementById('room-list');
     const currentRoomNameSpan = document.getElementById('current-room-name');
     const chatRoomIconSpan = document.getElementById('chat-room-icon');
+    const newRoomNameInput = document.getElementById('newRoomNameInput');
+    const createRoomBtn = document.getElementById('createRoomBtn');
+    const themeToggleCheckbox = document.getElementById('theme-checkbox');
 
-    // --- App State (Client-Side) ---
+    // --- App State ---
     let currentUsername = null;
+    let currentSessionToken = null;
     let currentRoomId = 'general';
     let pollingInterval = null;
-    const BAD_WORDS_CLIENT = ["darn", "heck", "badword", "crap", "poop"];
+    let isRegisterMode = false;
+    const BAD_WORDS_CLIENT = ["darn", "heck", "badword", "crap", "poop", "stupid"];
 
-    const BASE_URL = 'https://baturn.koyeb.app';
-    const MESSAGES_URL_TEMPLATE = (roomId) => `${BASE_URL}/getMessages?room=${roomId}`;
-    const POST_MESSAGE_URL = `${BASE_URL}/postMessage`;
+    // --- SERVER URLs (Relative Paths) ---
+    const REGISTER_URL = `/register`;
+    const LOGIN_URL = `/login`;
+    const CREATE_ROOM_URL = `/createRoom`;
+    const GET_ROOMS_URL = `/getRooms`;
+    const MESSAGES_URL_TEMPLATE = (roomId) => `/getMessages?room=${roomId}`;
+    const POST_MESSAGE_URL = `/postMessage`;
+    const DELETE_MESSAGE_URL = `/deleteMessage`;
 
-    // --- Event Listeners ---
-    joinChatButton.addEventListener('click', handleJoinChat);
-    usernameInput.addEventListener('keypress', (event) => {
-        if (event.key === 'Enter') handleJoinChat();
-    });
-    leaveChatButton.addEventListener('click', handleLeaveChat);
-    
-    messageForm.addEventListener('submit', (event) => {
-        event.preventDefault();
-        postNewMessage();
-    });
+    // --- Utility to safely attach listener ---
+    function safeAddEventListener(element, eventType, handler) {
+        if (element) {
+            element.addEventListener(eventType, handler);
+        } else {
+            console.warn(`Element for event '${eventType}' not found (was null):`, element);
+        }
+    }
+
+    // --- Event Listeners Setup ---
+    function setupEventListeners() {
+        safeAddEventListener(loginButton, 'click', handleAuthAttempt);
+        safeAddEventListener(registerButton, 'click', handleAuthAttempt);
+        safeAddEventListener(usernameInput, 'keypress', (event) => { if (event.key === 'Enter' && passwordInput) passwordInput.focus(); });
+        safeAddEventListener(passwordInput, 'keypress', (event) => { if (event.key === 'Enter') handleAuthAttempt(); });
+        safeAddEventListener(toggleAuthModeLink, 'click', toggleAuthMode);
+        safeAddEventListener(logoutButton, 'click', handleLogout);
+        safeAddEventListener(messageForm, 'submit', (event) => { event.preventDefault(); postNewMessage(); });
+        safeAddEventListener(createRoomBtn, 'click', handleCreateRoom);
+        safeAddEventListener(roomListUl, 'click', handleRoomSelection);
+        safeAddEventListener(sidebarToggleBtn, 'click', toggleSidebar);
+        safeAddEventListener(themeToggleCheckbox, 'change', handleThemeToggle);
+        safeAddEventListener(messagesDiv, 'click', handleDeleteMessageClick);
+
+        document.addEventListener('click', (event) => {
+            if (sidebar && sidebar.classList.contains('open') &&
+                !sidebar.contains(event.target) && // Click was outside sidebar
+                sidebarToggleBtn && !sidebarToggleBtn.contains(event.target)) { // And not on the toggle button itself
+                sidebar.classList.remove('open');
+            }
+        });
+    }
 
     // --- Initialization ---
     function init() {
-        showLoginScreen();
-        updateCurrentRoomDisplay();
-        const rememberedUsername = localStorage.getItem('chatUsername');
-        if (rememberedUsername) {
-            usernameInput.value = rememberedUsername;
-        }
-        displaySystemMessage("Welcome! Please enter a display name to join the chat.", "info", true);
-    }
-
-    function showLoginScreen() {
-        loginSection.classList.remove('hidden');
-        chatSection.classList.add('hidden');
-        loginStatusP.textContent = '';
-        loginStatusP.className = 'status-message'; // Reset class
-        messageInput.disabled = true;
-        sendMessageBtn.disabled = true;
-        if (document.activeElement !== usernameInput) { // Avoid stealing focus if user is typing
-             setTimeout(() => usernameInput.focus(), 0);
+        updateAuthUI();
+        loadTheme(); // Load and apply theme first
+        currentSessionToken = localStorage.getItem('chatSessionToken');
+        currentUsername = localStorage.getItem('chatUsername');
+        if (currentSessionToken && currentUsername) {
+            console.log("Found stored session, attempting to show chat screen.");
+            showChatScreen();
+        } else {
+            showAuthScreen();
         }
     }
 
-    function showChatScreen() {
-        loginSection.classList.add('hidden');
-        chatSection.classList.remove('hidden');
-        currentUserDisplaySpan.textContent = currentUsername || 'Guest';
-        userAvatarSpan.textContent = currentUsername ? currentUsername.charAt(0).toUpperCase() : '?';
-        userAvatarSpan.style.backgroundColor = generateAvatarColor(currentUsername || 'Guest');
-
-        messageInput.disabled = false;
-        sendMessageBtn.disabled = false;
-        messageInput.value = '';
-        messageInput.focus();
-        messagesDiv.innerHTML = ''; // Clear previous messages or login prompts
-        displaySystemMessage(`Joined #${currentRoomNameSpan.textContent} as ${currentUsername}.`, "success");
-        fetchMessages();
-        startMessagePolling();
+    // --- Theme Management ---
+    function loadTheme() {
+        const savedTheme = localStorage.getItem('chatTheme') || 'light'; // Default to light
+        applyTheme(savedTheme);
+        if (themeToggleCheckbox) {
+            themeToggleCheckbox.checked = (savedTheme === 'dark');
+        }
     }
 
-    function handleJoinChat() {
+    function applyTheme(theme) {
+        if (theme === 'dark') {
+            document.body.classList.add('dark-theme');
+        } else {
+            document.body.classList.remove('dark-theme');
+        }
+        localStorage.setItem('chatTheme', theme);
+    }
+
+    function handleThemeToggle() {
+        if (themeToggleCheckbox && themeToggleCheckbox.checked) {
+            applyTheme('dark');
+        } else {
+            applyTheme('light');
+        }
+    }
+
+    // --- Sidebar Toggle for Mobile ---
+    function toggleSidebar() {
+        if (sidebar) {
+            sidebar.classList.toggle('open');
+        }
+    }
+
+    // --- Auth UI and Logic ---
+    function toggleAuthMode(event) {
+        if (event) event.preventDefault();
+        isRegisterMode = !isRegisterMode;
+        updateAuthUI();
+    }
+
+    function updateAuthUI() {
+        if (isRegisterMode) {
+            if(authTitle) authTitle.textContent = 'Register New Account';
+            if(authSubtitle) authSubtitle.textContent = 'Create your username and password.';
+            if(loginButton) loginButton.classList.add('hidden');
+            if(registerButton) registerButton.classList.remove('hidden');
+            if(toggleAuthModeLink) toggleAuthModeLink.textContent = 'Already have an account? Login.';
+        } else {
+            if(authTitle) authTitle.textContent = 'Login to Chat';
+            if(authSubtitle) authSubtitle.textContent = 'Enter your credentials below.';
+            if(loginButton) loginButton.classList.remove('hidden');
+            if(registerButton) registerButton.classList.add('hidden');
+            if(toggleAuthModeLink) toggleAuthModeLink.textContent = 'Need an account? Register.';
+        }
+        if(authStatusP) { authStatusP.textContent = ''; authStatusP.className = 'status-message'; }
+        if(passwordInput) passwordInput.value = '';
+    }
+
+    async function handleAuthAttempt() {
         const username = usernameInput.value.trim();
-        if (username.length < 2 || username.length > 20) {
-            loginStatusP.textContent = 'Username must be 2-20 characters.';
-            loginStatusP.className = 'status-message error';
-            return;
-        }
-        if (/[^a-zA-Z0-9_-\s]/.test(username)) {
-            loginStatusP.textContent = 'Invalid characters in username.';
-            loginStatusP.className = 'status-message error';
-            return;
-        }
-        currentUsername = username;
-        localStorage.setItem('chatUsername', currentUsername);
-        showChatScreen();
-    }
+        const password = passwordInput.value;
 
-    function handleLeaveChat() {
-        currentUsername = null;
-        stopMessagePolling();
-        showLoginScreen();
-        messagesDiv.innerHTML = ''; // Clear messages
-        displaySystemMessage("You have left the chat. Enter a name to rejoin.", "info", true);
-    }
+        if (!username || !password) { authStatusP.textContent = 'User/Pass required.'; authStatusP.className = 'status-message error'; return; }
+        if (username.length < 3 || username.length > 20) { authStatusP.textContent = 'Username 3-20 chars.'; authStatusP.className = 'status-message error'; return; }
+        if (password.length < 6) { authStatusP.textContent = 'Password min 6 chars.'; authStatusP.className = 'status-message error'; return; }
+        if (isRegisterMode && !username.match(/^[a-zA-Z0-9_-]+$/)) { authStatusP.textContent = 'Username: letters,nums,_, - only.'; authStatusP.className = 'status-message error'; return; }
 
-    function updateCurrentRoomDisplay() {
-        const activeRoomLi = roomListUl.querySelector('.active-room');
-        const roomName = activeRoomLi ? activeRoomLi.dataset.roomid : 'general'; // Use data-roomid for consistency
-        currentRoomNameSpan.textContent = roomName;
-        chatRoomIconSpan.textContent = '#';
-    }
-
-    async function postNewMessage() {
-        const messageText = messageInput.value.trim();
-        if (!messageText || !currentUsername) return;
-
-        for (const badWord of BAD_WORDS_CLIENT) {
-            if (messageText.toLowerCase().includes(badWord.toLowerCase())) {
-                displaySystemMessage(`Your message contains a forbidden word ('${badWord}') and was not sent.`, 'error');
-                return;
-            }
-        }
-        const tempMessageId = `temp_${Date.now()}`; // For optimistic update tracking
-        const messageDataForUI = {
-            id: tempMessageId, // Temporary ID
-            sender: currentUsername,
-            text: messageText,
-            timestamp: new Date().toISOString(),
-            optimistic: true
-        };
-        addMessageToDOM(messageDataForUI);
-        messageInput.value = '';
+        const url = isRegisterMode ? REGISTER_URL : LOGIN_URL;
+        const actionText = isRegisterMode ? 'Registering...' : 'Logging in...';
+        authStatusP.textContent = actionText; authStatusP.className = 'status-message';
+        if(loginButton) loginButton.disabled = true; if(registerButton) registerButton.disabled = true;
 
         try {
-            const response = await fetch(POST_MESSAGE_URL, {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `username=${encodeURIComponent(currentUsername)}&message=${encodeURIComponent(messageText)}&room=${encodeURIComponent(currentRoomId)}`
+                body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
             });
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ message: `Server error (${response.status})` }));
-                throw new Error(errorData.message);
-            }
-            const serverResponse = await response.json();
-            if (serverResponse.censored) {
-                displaySystemMessage("Your message was modified by server moderation.", "info");
-            }
-            // Server success, no need to re-add, fetchMessages will get it or we can update optimistic one
-            const tempMsgElement = document.getElementById(tempMessageId);
-            if (tempMsgElement) tempMsgElement.classList.remove('optimistic'); // Mark as confirmed
-            fetchMessages(); // Refresh to get confirmed messages list
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || `Auth failed (${response.status})`);
+            
+            currentUsername = data.username; currentSessionToken = data.token;
+            localStorage.setItem('chatUsername', currentUsername);
+            localStorage.setItem('chatSessionToken', currentSessionToken);
+            authStatusP.textContent = data.message || (isRegisterMode ? 'Registered!' : 'Logged in!');
+            authStatusP.className = 'status-message success';
+            setTimeout(() => showChatScreen(), 500);
         } catch (error) {
-            console.error('Error posting message:', error);
-            displaySystemMessage(`Error: ${error.message}. Message not sent.`, 'error');
-            const failedMsgElement = document.getElementById(tempMessageId);
-            if (failedMsgElement) failedMsgElement.classList.add('failed'); // Style failed messages
+            console.error('Auth error:', error);
+            authStatusP.textContent = `Error: ${error.message}`;
+            authStatusP.className = 'status-message error';
+        } finally {
+            if(loginButton) loginButton.disabled = false; if(registerButton) registerButton.disabled = false;
         }
     }
 
-    function addMessageToDOM(msgData) {
-        const messageElement = document.createElement('div');
-        messageElement.classList.add('message');
-        if (msgData.id) messageElement.id = msgData.id; // For optimistic updates
-        if (msgData.optimistic) messageElement.classList.add('optimistic');
+    function handleLogout() {
+        currentUsername = null; currentSessionToken = null;
+        localStorage.removeItem('chatUsername'); localStorage.removeItem('chatSessionToken');
+        stopMessagePolling(); showAuthScreen();
+        if (messagesDiv) messagesDiv.innerHTML = '';
+        displaySystemMessage("You have been logged out. Login or register to continue.", "info", true);
+    }
 
+    // --- UI State Changers (Auth vs Chat) ---
+    function showAuthScreen() {
+        if(authSection) authSection.classList.remove('hidden');
+        if(chatSection) chatSection.classList.add('hidden');
+        if(passwordInput) passwordInput.value = '';
+        if(authStatusP) { authStatusP.textContent = ''; authStatusP.className = 'status-message'; }
+        if(messageInput) messageInput.disabled = true;
+        if(sendMessageBtn) sendMessageBtn.disabled = true;
+        if(usernameInput && !usernameInput.value && document.activeElement !== usernameInput) {
+             setTimeout(() => usernameInput.focus(), 0);
+        }
+        if(roomListUl) roomListUl.innerHTML = '';
+        if(sidebar) sidebar.classList.remove('open');
+    }
+    
+    async function showChatScreen() {
+        if(authSection) authSection.classList.add('hidden');
+        if(chatSection) chatSection.classList.remove('hidden');
+        if(currentUserDisplaySpan) currentUserDisplaySpan.textContent = currentUsername || 'Guest';
+        if(userAvatarSpan) {
+            userAvatarSpan.textContent = currentUsername ? currentUsername.charAt(0).toUpperCase() : '?';
+            userAvatarSpan.style.backgroundColor = generateAvatarColor(currentUsername || 'Guest');
+        }
+        if(messageInput) { messageInput.disabled = false; messageInput.value = ''; messageInput.focus(); }
+        if(sendMessageBtn) sendMessageBtn.disabled = false;
+        if(messagesDiv) messagesDiv.innerHTML = '';
+        await fetchAndRenderRooms();
+    }
+    
+    // --- Room Management ---
+    async function fetchAndRenderRooms() {
+        if (!currentSessionToken) { if (currentUsername) handleLogout(); return; }
+        try {
+            const response = await fetch(GET_ROOMS_URL, { headers: { 'Authorization': 'Bearer ' + currentSessionToken }});
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: `Failed to get rooms (${response.status})` }));
+                 if (response.status === 401 && chatSection && !chatSection.classList.contains('hidden')) { 
+                    handleLogout(); displaySystemMessage(errorData.message || "Session invalid. Logged out.", "error", true); 
+                }
+                throw new Error(errorData.message);
+            }
+            const roomsFromServer = await response.json();
+            if(roomListUl) roomListUl.innerHTML = '';
+            let activeRoomStillInList = false;
+            let roomsToDisplay = (roomsFromServer && roomsFromServer.length > 0) ? roomsFromServer : ['general'];
+            if (!roomsToDisplay.includes('general')) roomsToDisplay.unshift('general');
+            roomsToDisplay = [...new Set(roomsToDisplay)];
 
-        const isCurrentUser = msgData.sender === currentUsername;
-        const senderDisplayName = isCurrentUser ? 'You' : (msgData.sender || 'Anonymous');
-        messageElement.classList.add(isCurrentUser ? 'user-message' : 'other-message');
+            roomsToDisplay.forEach(roomId => {
+                const li = document.createElement('li'); li.dataset.roomid = roomId; li.textContent = `# ${roomId}`;
+                if (roomId === currentRoomId) { li.classList.add('active-room'); activeRoomStillInList = true; }
+                if(roomListUl) roomListUl.appendChild(li);
+            });
 
-        const senderSpan = document.createElement('span');
-        senderSpan.classList.add('sender');
-        senderSpan.textContent = senderDisplayName;
-        messageElement.appendChild(senderSpan);
+            if (!activeRoomStillInList && roomListUl && roomListUl.firstChild) switchRoom(roomListUl.firstChild.dataset.roomid);
+            else if (roomListUl && roomListUl.firstChild) switchRoom(currentRoomId);
+            else { 
+                if(roomListUl) { const li = document.createElement('li');li.dataset.roomid = 'general';li.textContent = '# general';li.classList.add('active-room');roomListUl.appendChild(li); }
+                switchRoom('general');
+            }
+        } catch (error) {
+            console.error("Error fetching/rendering rooms:", error);
+            displaySystemMessage(`Error loading rooms: ${error.message}`, "error");
+            if(roomListUl) { roomListUl.innerHTML = ''; const li = document.createElement('li');li.dataset.roomid = 'general';li.textContent = '# general';li.classList.add('active-room');roomListUl.appendChild(li); }
+            switchRoom('general');
+        }
+    }
 
-        const textWrapper = document.createElement('div');
-        textWrapper.classList.add('text-content-wrapper');
-        const textSpan = document.createElement('span');
-        textSpan.classList.add('text-content');
-        textSpan.textContent = msgData.text;
-        textWrapper.appendChild(textSpan);
-        messageElement.appendChild(textWrapper);
-        
-        const isScrolledToBottom = messagesDiv.scrollHeight - messagesDiv.clientHeight <= messagesDiv.scrollTop + 1;
-        messagesDiv.appendChild(messageElement);
-        if (isScrolledToBottom || isCurrentUser) {
+    async function handleCreateRoom() {
+        if(!newRoomNameInput || !createRoomBtn) return;
+        const roomNameRaw = newRoomNameInput.value.trim();
+        if (!roomNameRaw || roomNameRaw.length < 3 || roomNameRaw.length > 15) { alert("Room name: 3-15 chars."); return; }
+        const roomId = roomNameRaw.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        if (!roomId || roomId.length < 3) { alert("Valid room ID: 3-15 letters, numbers, hyphens."); return; }
+        if (!currentSessionToken) { handleLogout(); return; }
+        createRoomBtn.disabled = true;
+        try {
+            const response = await fetch(CREATE_ROOM_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': 'Bearer ' + currentSessionToken },
+                body: `roomName=${encodeURIComponent(roomId)}`
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || "Failed to create room.");
+            newRoomNameInput.value = '';
+            await fetchAndRenderRooms(); 
+            switchRoom(data.roomId || roomId); 
+        } catch (error) { console.error("Error creating room:", error); alert(`Create room error: ${error.message}`);
+        } finally { createRoomBtn.disabled = false; }
+    }
+
+    function handleRoomSelection(event) {
+        const targetLi = event.target.closest('li');
+        if (targetLi && targetLi.dataset.roomid) {
+            const newRoomId = targetLi.dataset.roomid;
+            if (newRoomId !== currentRoomId) switchRoom(newRoomId);
+            if (sidebar && sidebar.classList.contains('open')) sidebar.classList.remove('open');
+        }
+    }
+
+    function switchRoom(newRoomId) {
+        console.log(`Switching to room: ${newRoomId}`); currentRoomId = newRoomId;
+        if(roomListUl) document.querySelectorAll('#room-list li').forEach(li => {li.classList.toggle('active-room', li.dataset.roomid === currentRoomId);});
+        updateCurrentRoomDisplay(); 
+        if(messagesDiv) messagesDiv.innerHTML = '';
+        displaySystemMessage(`Joined #${currentRoomNameSpan ? currentRoomNameSpan.textContent : newRoomId} as ${currentUsername}.`, "success");
+        fetchMessages();
+        if (currentUsername && currentSessionToken) { stopMessagePolling(); startMessagePolling(); }
+    }
+    
+    function updateCurrentRoomDisplay() {
+        const activeRoomLi = roomListUl ? roomListUl.querySelector('.active-room') : null;
+        const roomName = activeRoomLi ? activeRoomLi.dataset.roomid : currentRoomId;
+        if(currentRoomNameSpan) currentRoomNameSpan.textContent = roomName;
+        if(chatRoomIconSpan) chatRoomIconSpan.textContent = '#';
+    }
+
+    // --- Chat Functionality ---
+    async function postNewMessage() {
+    // ... (initial checks for messageInput, currentUsername, currentSessionToken, messageText, bad words) ...
+    
+    const originalMessageInputValue = messageInput.value.trim(); // Use trimmed value for sending
+    messageInput.value = ''; 
+
+    console.log("postNewMessage: Attempting to send:", originalMessageInputValue, "to room:", currentRoomId, "by:", currentUsername); // Debug log
+
+    try {
+        const response = await fetch(POST_MESSAGE_URL, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Authorization': 'Bearer ' + currentSessionToken 
+            },
+            // Username comes from the token on the server side
+            // Only send message and room
+            body: `message=${encodeURIComponent(originalMessageInputValue)}&room=${encodeURIComponent(currentRoomId)}` 
+        });
+
+        // ... (the rest of your existing !response.ok, data parsing, and error handling) ...
+        // ... (including the fetchMessages() call and the scroll to bottom if successful) ...
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: `Server error (${response.status})` }));
+            if (response.status === 401 && chatSection && !chatSection.classList.contains('hidden')) {
+                handleLogout(); 
+                displaySystemMessage(errorData.message || "Session invalid. Logged out.", "error", true);
+            }
+            throw new Error(errorData.message);
+        }
+
+        const serverResponse = await response.json();
+        if (serverResponse.censored) {
+            displaySystemMessage("Your message was modified by server moderation.", "info");
+        }
+
+        await fetchMessages(); 
+
+        if (messagesDiv) { // Ensure scroll after messages are fetched and rendered
             messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+        }
+
+    } catch (error) {
+        console.error('Error posting message:', error);
+        displaySystemMessage(`Send Error: ${error.message}.`, 'error');
+        if (messageInput) messageInput.value = originalMessageInputValue; // Restore message on error
+    }
+}
+
+
+    function addMessageToDOM(msgData) {
+    if (!messagesDiv) {
+        console.error("messagesDiv is not available to add message.");
+        return null; // Return null or the element if needed by caller
+    }
+
+    const messageElement = document.createElement('div');
+    messageElement.classList.add('message');
+    if (msgData.id) {
+        messageElement.dataset.messageId = msgData.id;
+    }
+
+    const isCurrentUserMsg = msgData.sender === currentUsername;
+    const senderDisplayName = isCurrentUserMsg ? 'You' : (msgData.sender || 'Anonymous');
+    messageElement.classList.add(isCurrentUserMsg ? 'user-message' : 'other-message');
+
+    const senderSpan = document.createElement('span');
+    senderSpan.classList.add('sender');
+    senderSpan.textContent = senderDisplayName;
+    messageElement.appendChild(senderSpan);
+
+    const textWrapper = document.createElement('div');
+    textWrapper.classList.add('text-content-wrapper');
+    const textSpan = document.createElement('span');
+    textSpan.classList.add('text-content');
+    textSpan.textContent = msgData.text || "";
+    textWrapper.appendChild(textSpan);
+    
+    if (isCurrentUserMsg && msgData.id) {
+        const actionsSpan = document.createElement('span');
+        actionsSpan.classList.add('message-actions');
+        const deleteBtn = document.createElement('button');
+        deleteBtn.classList.add('delete-message-btn');
+        deleteBtn.title = 'Delete message';
+        deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M5 3.25V4H2.75a.75.75 0 000 1.5h.31l.94 7.624A2.251 2.251 0 006.228 15h3.544c1.123 0 2.09-.813 2.228-1.876l.94-7.624h.31a.75.75 0 000-1.5H11v-.75A2.25 2.25 0 008.75 1h-1.5A2.25 2.25 0 005 3.25zm2.25-.75a.75.75 0 00-.75.75V4h3v-.75a.75.75 0 00-.75-.75h-1.5z" clip-rule="evenodd" /><path d="M3.938 5.5H12.06l-.89 7.125A.75.75 0 0110.43 13.5H5.57a.75.75 0 01-.74-.875L3.938 5.5z" /></svg>`;
+        actionsSpan.appendChild(deleteBtn);
+        textWrapper.appendChild(actionsSpan);
+    }
+    messageElement.appendChild(textWrapper);
+
+    messagesDiv.appendChild(messageElement);
+    return messageElement; // Return the element in case caller wants to do something with it
+}
+
+    async function handleDeleteMessageClick(event) {
+        const deleteButton = event.target.closest('.delete-message-btn');
+        if (!deleteButton) {
+            return; // Click was not on a delete button or its child
+        }
+
+        const messageElement = deleteButton.closest('.message');
+        if (!messageElement || !messageElement.dataset.messageId) {
+            console.error("Could not find message element or message ID to delete.");
+            return;
+        }
+        
+        const messageId = messageElement.dataset.messageId;
+        const roomOfMessage = currentRoomId; // Assumes deletion is for messages in the currently active room
+
+        if (!confirm("Are you sure you want to delete this message?")) {
+            return;
+        }
+
+        console.log(`Attempting to delete message: ${messageId} from room: ${roomOfMessage}`);
+
+        try {
+            const response = await fetch(DELETE_MESSAGE_URL, {
+                method: 'DELETE', // Your Java server's DeleteMessageHandler needs to support DELETE
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded', // If sending data in body
+                    'Authorization': 'Bearer ' + currentSessionToken
+                },
+                // For DELETE with fetch, body is sometimes problematic or not standard.
+                // It's often better to send IDs as query params or path params for DELETE.
+                // However, since our Java parseFormData reads the body for POST,
+                // we can try sending it in the body for consistency if your server handles it.
+                // If your Java handler expects query params:
+                // const deleteUrl = `${DELETE_MESSAGE_URL}?messageId=${encodeURIComponent(messageId)}&roomId=${encodeURIComponent(roomOfMessage)}`;
+                // const response = await fetch(deleteUrl, { method: 'DELETE', headers: { 'Authorization': ... } });
+                // For now, assuming Java handler can parse body for DELETE:
+                body: `messageId=${encodeURIComponent(messageId)}&roomId=${encodeURIComponent(roomOfMessage)}`
+            });
+
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || "Failed to delete message from server.");
+            }
+
+            // Successfully deleted from server, now remove from DOM
+            messageElement.remove();
+            displaySystemMessage("Message deleted.", "success");
+
+        } catch (error) {
+            console.error("Error deleting message:", error);
+            displaySystemMessage(`Error deleting message: ${error.message}`, "error");
         }
     }
 
     function displaySystemMessage(text, type = 'info', clearPrevious = false) {
-        if(clearPrevious) messagesDiv.innerHTML = ''; // Clear existing messages first
+        const targetContainer = chatSection && !chatSection.classList.contains('hidden') ? messagesDiv : authStatusP;
+        if (!targetContainer) return;
+        if (clearPrevious && targetContainer === messagesDiv) targetContainer.innerHTML = '';
+        
         const messageElement = document.createElement('p');
         messageElement.classList.add('system-message');
         if (type === 'error') messageElement.style.color = 'var(--error-color)';
         else if (type === 'success') messageElement.style.color = 'var(--success-color)';
         messageElement.textContent = text;
-        messagesDiv.appendChild(messageElement);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        
+        targetContainer.appendChild(messageElement);
+        if (targetContainer === messagesDiv && (type !== "info" || !clearPrevious || targetContainer.querySelectorAll('.message').length === 0 || text.startsWith("Welcome!"))) {
+             targetContainer.scrollTop = targetContainer.scrollHeight;
+        } else if (targetContainer === authStatusP) {
+            targetContainer.className = `status-message ${type === 'info' ? '' : type}`; // Reset if info, else set error/success
+        }
     }
 
     async function fetchMessages() {
-        if (!currentUsername) return;
-        try {
-            const response = await fetch(MESSAGES_URL_TEMPLATE(currentRoomId));
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ message: `Error loading (Status: ${response.status})` }));
-                throw new Error(errorData.message);
-            }
-            const messagesFromServer = await response.json();
-            
-            const isScrolledToBottom = messagesDiv.scrollHeight - messagesDiv.clientHeight <= messagesDiv.scrollTop + 5; // 5px buffer
+    if (!currentUsername || !currentSessionToken) {
+        if (!currentSessionToken && currentUsername && chatSection && !chatSection.classList.contains('hidden')) {
+            handleLogout();
+            displaySystemMessage("Session ended. Please log in.", "error", true);
+        }
+        return;
+    }
 
-            messagesDiv.innerHTML = ''; // Simplest way to refresh: clear and re-add
-            if(currentUsername) displaySystemMessage(`You are in #${currentRoomNameSpan.textContent} as ${currentUsername}.`, "info");
+    if (!messagesDiv) return; // Early exit if messagesDiv isn't there
 
+    // --- CAPTURE SCROLL STATE BEFORE MODIFYING DOM ---
+    const scrollBuffer = 30;
+    const userWasNearBottom = (messagesDiv.scrollHeight - messagesDiv.clientHeight) <= (messagesDiv.scrollTop + scrollBuffer);
+    const oldScrollTop = messagesDiv.scrollTop; // Store current scroll position
 
-            if (messagesFromServer.length === 0) {
-                displaySystemMessage(`No messages yet. Be the first!`);
-            } else {
-                messagesFromServer.forEach(msg => addMessageToDOM(msg));
-            }
-             if (isScrolledToBottom) {
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            }
+    try {
+        const response = await fetch(MESSAGES_URL_TEMPLATE(currentRoomId), {
+            headers: { 'Authorization': 'Bearer ' + currentSessionToken }
+        });
 
-        } catch (error) {
-            console.error('Error fetching messages:', error);
-            if (currentUsername) {
-                displaySystemMessage(`Could not load messages: ${error.message}`, 'error');
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: `Error loading messages (Status: ${response.status})` }));
+            if (response.status === 401 && chatSection && !chatSection.classList.contains('hidden')) {
+                handleLogout();
+                displaySystemMessage(errorData.message || "Your session is invalid. Please log in again.", "error", true);
+            } else if (chatSection && !chatSection.classList.contains('hidden')) {
+                displaySystemMessage(`Could not load new messages: ${errorData.message}`, 'error', false);
             }
+            // No need to throw error here if we've already displayed it, just return
+            return;
+        }
+
+        const messagesFromServer = await response.json();
+        
+        // Preserve system messages (same as before)
+        const systemMessagesToPreserve = [];
+        messagesDiv.querySelectorAll('.system-message').forEach(sm => {
+            if (!sm.textContent.includes(`as ${currentUsername}`)) {
+                systemMessagesToPreserve.push(sm.cloneNode(true));
+            }
+        });
+        
+        messagesDiv.innerHTML = ''; // Clear all previous messages
+        systemMessagesToPreserve.forEach(sm => messagesDiv.appendChild(sm)); // Re-add preserved
+
+        let hasJoinMessage = false;
+        messagesDiv.querySelectorAll('.system-message').forEach(sm => {
+           if (sm.textContent.includes(`as ${currentUsername}`)) hasJoinMessage = true;
+        });
+        if (currentUsername && !hasJoinMessage) {
+            displaySystemMessage(`You are in #${currentRoomNameSpan ? currentRoomNameSpan.textContent : currentRoomId} as ${currentUsername}.`, "info", false);
+        }
+        
+        // Render the fetched messages
+        if (messagesFromServer.length === 0) {
+            if (messagesDiv.querySelectorAll('.message').length === 0 && messagesDiv.querySelectorAll('.system-message').length <= 1) {
+                displaySystemMessage(`No messages in #${currentRoomNameSpan ? currentRoomNameSpan.textContent : currentRoomId}. Send one!`);
+            }
+        } else {
+            messagesFromServer.forEach(msg => addMessageToDOM(msg)); // addMessageToDOM does NOT scroll for other users
+        }
+
+        // --- APPLY SCROLL POSITION ---
+        if (userWasNearBottom) {
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to new bottom
+        } else {
+            // If user was scrolled up, try to restore their previous scroll position.
+            // This might not be perfect if the content height changed significantly,
+            // but it's better than always scrolling to top or bottom.
+            messagesDiv.scrollTop = oldScrollTop;
+        }
+        // --- END OF APPLY SCROLL POSITION ---
+
+    } catch (error) {
+        console.error('Error fetching messages:', error.message);
+        // Error already handled if it was a !response.ok, otherwise this is a network/JS error
+        if (currentUsername && chatSection && !chatSection.classList.contains('hidden') && !messagesDiv.querySelector('.system-message.error')) {
+             displaySystemMessage(`Could not connect to load messages.`, 'error', false);
         }
     }
+}
 
-    function startMessagePolling() {
-        if (pollingInterval) clearInterval(pollingInterval);
-        // fetchMessages(); // Initial fetch is now handled by showChatScreen
-        pollingInterval = setInterval(fetchMessages, 3000);
-        console.log("Message polling started for room:", currentRoomId);
-    }
-
-    function stopMessagePolling() {
-        if (pollingInterval) {
-            clearInterval(pollingInterval);
-            pollingInterval = null;
-            console.log("Message polling stopped.");
-        }
-    }
-
-    function generateAvatarColor(username) {
-        let hash = 0;
-        for (let i = 0; i < username.length; i++) {
-            hash = username.charCodeAt(i) + ((hash << 5) - hash);
-            hash = hash & hash; // Convert to 32bit integer
-        }
-        const R_MASK = 0xFF0000;
-        const G_MASK = 0x00FF00;
-        const B_MASK = 0x0000FF;
-        // Ensure colors are not too light by limiting the lower bound of each component
-        const r = (hash & R_MASK) >> 16;
-        const g = (hash & G_MASK) >> 8;
-        const b = hash & B_MASK;
-        // A simple way to make colors a bit more saturated and not too pale
-        const R = (r % 156) + 50; // 50-205
-        const G = (g % 156) + 50; // 50-205
-        const B = (b % 156) + 50; // 50-205
-        return `rgb(${R}, ${G}, ${B})`;
-    }
-
+    function startMessagePolling() { if(pollingInterval)clearInterval(pollingInterval); pollingInterval=setInterval(fetchMessages,3000); console.log("Polling started for:",currentRoomId); }
+    function stopMessagePolling() { if(pollingInterval){clearInterval(pollingInterval);pollingInterval=null;console.log("Polling stopped.");}}
+    function generateAvatarColor(u){if(!u)return'#ccc';let h=0;for(let i=0;i<u.length;i++){h=u.charCodeAt(i)+((h<<5)-h);h=h&h;}const r=(h&0xFF0000)>>16;const g=(h&0x00FF00)>>8;const b=h&0x0000FF;return`hsl(${(h%360)},${60+(h%25)}%,${45+(h%10)}%)`;}
+    
+    // --- Initialize App ---
+    setupEventListeners(); // Must be called to attach listeners
     init();
 });
